@@ -2,6 +2,14 @@ export const THREAD_SIDEBAR_WIDTH_STORAGE_KEY = "chat_thread_sidebar_width";
 export const THREAD_SIDEBAR_DEFAULT_WIDTH = 16 * 16;
 export const THREAD_SIDEBAR_MIN_WIDTH = 13 * 16;
 export const THREAD_MAIN_CONTENT_MIN_WIDTH = 40 * 16;
+export const THREAD_CHAT_CONTENT_MAX_WIDTH = 48 * 16;
+
+export function canThreadSidebarOverlayChatMargin(
+  sidebarWidth: number,
+  viewportWidth: number,
+): boolean {
+  return viewportWidth >= THREAD_CHAT_CONTENT_MAX_WIDTH + sidebarWidth * 2;
+}
 
 export function resolveThreadSidebarMaximumWidth(viewportWidth: number): number {
   return Math.max(
