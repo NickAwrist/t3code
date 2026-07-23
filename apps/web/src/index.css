@@ -94,6 +94,14 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   );
 }
 
+/* Keep the chat centered in the viewport when the expanded app sidebar fits
+   entirely inside the otherwise-unused margin beside its 48rem column. */
+[data-sidebar-overlays-chat-margin="true"]:has([data-chat-thread-inset])
+  > [data-slot="sidebar"]
+  > [data-slot="sidebar-gap"] {
+  width: 0;
+}
+
 .wco {
   --workspace-topbar-height: env(titlebar-area-height, 52px);
   --workspace-controls-top: env(titlebar-area-y, 0px);
