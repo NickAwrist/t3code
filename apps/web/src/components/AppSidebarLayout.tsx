@@ -27,6 +27,7 @@ import {
 } from "./SidebarStageBackdrop";
 import { useProjects } from "../state/entities";
 import {
+  canThreadSidebarOverlayChatMargin,
   resolveInitialThreadSidebarWidth,
   resolveThreadSidebarMaximumWidth,
   THREAD_MAIN_CONTENT_MIN_WIDTH,
@@ -162,6 +163,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   // that would otherwise refresh a render-time snapshot.
   const viewportWidth = useSyncExternalStore(subscribeToViewportWidth, readViewportWidth);
   const sidebarMaximumWidth = resolveThreadSidebarMaximumWidth(viewportWidth);
+  const canOverlayChatMargin = canThreadSidebarOverlayChatMargin(sidebarWidth, viewportWidth);
   const resetSidebarWidth = () => {
     try {
       removeLocalStorageItem(THREAD_SIDEBAR_WIDTH_STORAGE_KEY);
@@ -225,6 +227,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     <SidebarProvider
       className="h-dvh! min-h-0!"
       data-panel-animations={panelAnimationsActive ? "true" : "false"}
+      data-sidebar-overlays-chat-margin={canOverlayChatMargin ? "true" : "false"}
       defaultOpen
       style={sidebarProviderStyle}
     >
@@ -233,7 +236,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         side="left"
         collapsible="offcanvas"
         data-app-sidebar=""
-        className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
+        className="z-40 border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
         resizable={{
           maxWidth: sidebarMaximumWidth,
           minWidth: THREAD_SIDEBAR_MIN_WIDTH,
