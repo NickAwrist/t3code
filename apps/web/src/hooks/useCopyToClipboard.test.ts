@@ -55,4 +55,54 @@ describe("writeTextToClipboard", () => {
     await expect(writeTextToClipboard("", "plan")).resolves.toBe(false);
     expect(writeText).not.toHaveBeenCalled();
   });
+
+  it("falls back to document.execCommand when navigator.clipboard is unavailable", async () => {
+    const execCommand = vi.fn().mockReturnValue(true);
+    const createElement = vi.fn().mockReturnValue({
+      style: {},
+      focus: vi.fn(),
+      select: vi.fn(),
+      value: "",
+    });
+    const appendChild = vi.fn();
+    const removeChild = vi.fn();
+
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("navigator", {});
+    vi.stubGlobal("document", {
+      createElement,
+      body: { appendChild, removeChild },
+      execCommand,
+    });
+
+    const result = await writeTextToClipboard("copied text via fallback", "code");
+    expect(result).toBe(true);
+    expect(execCommand).toHaveBeenCalledWith("copy");
+  });
+
+  it("falls back to document.execCommand when navigator.clipboard.writeText rejects", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("Permission denied"));
+    const execCommand = vi.fn().mockReturnValue(true);
+    const createElement = vi.fn().mockReturnValue({
+      style: {},
+      focus: vi.fn(),
+      select: vi.fn(),
+      value: "",
+    });
+    const appendChild = vi.fn();
+    const removeChild = vi.fn();
+
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    vi.stubGlobal("document", {
+      createElement,
+      body: { appendChild, removeChild },
+      execCommand,
+    });
+
+    const result = await writeTextToClipboard("copied text via fallback", "code");
+    expect(result).toBe(true);
+    expect(writeText).toHaveBeenCalledWith("copied text via fallback");
+    expect(execCommand).toHaveBeenCalledWith("copy");
+  });
 });

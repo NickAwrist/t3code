@@ -601,10 +601,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
   // Never render a QR for a loopback URL, even in the manual-copy fallback.
   const isRevealValueQrShareable =
     endpointCopyOptions.find((option) => option.url === revealValue)?.qrShareable ?? true;
-  const canCopyToClipboard =
-    typeof window !== "undefined" &&
-    window.isSecureContext &&
-    navigator.clipboard?.writeText != null;
+  const canCopyToClipboard = typeof window !== "undefined";
 
   const { copyToClipboard } = useCopyToClipboard<{
     value: string;
