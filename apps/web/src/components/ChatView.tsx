@@ -1,3 +1,4 @@
+import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import {
   type ApprovalRequestId,
   DEFAULT_MODEL,
@@ -3373,18 +3374,7 @@ function ChatViewContent(props: ChatViewProps) {
     useRightPanelStore.getState().closeAllSurfaces(activeThreadRef);
   }, [activeThreadRef, cleanupRightPanelSurfaces, rightPanelState.surfaces]);
   const copyRightPanelFilePath = useCallback((relativePath: string) => {
-    if (typeof window === "undefined" || !navigator.clipboard?.writeText) {
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: "Failed to copy path",
-          description: "Clipboard API unavailable.",
-        }),
-      );
-      return;
-    }
-
-    void navigator.clipboard.writeText(relativePath).then(
+    void writeTextToClipboard(relativePath, "path").then(
       () => {
         toastManager.add({
           type: "success",

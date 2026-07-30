@@ -577,10 +577,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
   const revealValue = shareablePairingUrl ?? pairingLink.credential;
   const isShareableHostedAppPairingUrl =
     shareablePairingUrl !== null && isHostedAppPairingUrl(shareablePairingUrl);
-  const canCopyToClipboard =
-    typeof window !== "undefined" &&
-    window.isSecureContext &&
-    navigator.clipboard?.writeText != null;
+  const canCopyToClipboard = typeof window !== "undefined";
 
   const { copyToClipboard } = useCopyToClipboard<"code" | "hosted-link" | "link">({
     onCopy: (kind) => {

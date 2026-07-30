@@ -24,28 +24,72 @@ export class ClipboardWriteError extends Schema.TaggedErrorClass<ClipboardWriteE
   }
 }
 
-export async function writeTextToClipboard(value: string, target = "text") {
+function fallbackCopyTextToClipboard(value: string): boolean {
   if (
-    typeof window === "undefined" ||
-    typeof navigator === "undefined" ||
-    !navigator.clipboard?.writeText
+    typeof document === "undefined" ||
+    typeof document.createElement !== "function" ||
+    !document.body
   ) {
-    throw new ClipboardApiUnavailableError({
-      target,
-    });
+    return false;
   }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "0";
+  textarea.style.width = "2em";
+  textarea.style.height = "2em";
+  textarea.style.padding = "0";
+  textarea.style.border = "none";
+  textarea.style.outline = "none";
+  textarea.style.boxShadow = "none";
+  textarea.style.background = "transparent";
+  textarea.style.opacity = "0";
 
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  let success = false;
+  try {
+    success = typeof document.execCommand === "function" && document.execCommand("copy");
+  } catch {
+    success = false;
+  } finally {
+    document.body.removeChild(textarea);
+  }
+  return success;
+}
+
+export async function writeTextToClipboard(value: string, target = "text") {
   if (!value) return false;
 
-  try {
-    await navigator.clipboard.writeText(value);
-    return true;
-  } catch (cause) {
-    throw new ClipboardWriteError({
-      target,
-      cause,
-    });
+  if (
+    typeof window !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    navigator.clipboard?.writeText
+  ) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch (cause) {
+      if (fallbackCopyTextToClipboard(value)) {
+        return true;
+      }
+      throw new ClipboardWriteError({
+        target,
+        cause,
+      });
+    }
   }
+
+  if (fallbackCopyTextToClipboard(value)) {
+    return true;
+  }
+
+  throw new ClipboardApiUnavailableError({
+    target,
+  });
 }
 
 export function useCopyToClipboard<TContext = void>({
