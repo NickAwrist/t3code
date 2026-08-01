@@ -174,80 +174,107 @@ export function makeAntigravityAdapter(
 
         const command = ChildProcess.make(binary, args);
 
-        yield* Effect.scoped(
-          Effect.gen(function* () {
-            const child = yield* childProcessSpawner.spawn(command).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProviderAdapterProcessError({
-                    provider: PROVIDER,
-                    threadId: input.threadId,
-                    detail: `Failed to spawn agy: ${cause}`,
-                    cause,
-                  }),
-              ),
-            );
-
-            yield* Effect.forkChild(
-              Effect.gen(function* () {
-                const stdoutText = yield* collectStreamAsString(child.stdout);
-                const lines = stdoutText.split("\n").filter(Boolean);
-
-                for (const line of lines) {
-                  if (!line.trim()) continue;
-                  let responseText = "";
-                  if (line.startsWith("{")) {
-                    try {
-                      const parsed = decodeUnknownJsonString(line) as Record<string, unknown>;
-                      if (typeof parsed.conversation_id === "string" && !ctx.conversationId) {
-                        ctx.conversationId = parsed.conversation_id;
-                      }
-                      if (typeof parsed.response === "string") {
-                        responseText = parsed.response;
-                      }
-                    } catch (_e) {
-                      responseText = line + "\n";
-                    }
-                  } else {
-                    responseText = line + "\n";
-                  }
-
-                  if (responseText) {
-                    yield* offerRuntimeEvent({
-                      type: "content.delta",
-                      ...(yield* makeEventStamp()),
+        yield* Effect.forkChild(
+          Effect.scoped(
+            Effect.gen(function* () {
+              const child = yield* childProcessSpawner.spawn(command).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderAdapterProcessError({
                       provider: PROVIDER,
                       threadId: input.threadId,
-                      turnId,
-                      payload: {
-                        streamKind: "assistant_text",
-                        delta: responseText,
-                      },
-                    });
+                      detail: `Failed to spawn agy: ${cause}`,
+                      cause,
+                    }),
+                ),
+              );
+
+              const stdoutText = yield* collectStreamAsString(child.stdout);
+              const lines = stdoutText.split("\n").filter(Boolean);
+
+              let streamedAnyDelta = false;
+              for (const line of lines) {
+                if (!line.trim()) continue;
+                let responseText = "";
+                if (line.startsWith("{")) {
+                  try {
+                    const parsed = decodeUnknownJsonString(line) as Record<string, unknown>;
+
+                    if (!ctx.conversationId) {
+                      if (typeof parsed.conversation_id === "string") {
+                        ctx.conversationId = parsed.conversation_id;
+                      } else if (
+                        parsed.init &&
+                        typeof (parsed.init as Record<string, unknown>).conversation_id === "string"
+                      ) {
+                        ctx.conversationId = (parsed.init as Record<string, unknown>).conversation_id as string;
+                      } else if (
+                        parsed.step_update &&
+                        typeof (parsed.step_update as Record<string, unknown>).conversation_id === "string"
+                      ) {
+                        ctx.conversationId = (parsed.step_update as Record<string, unknown>).conversation_id as string;
+                      } else if (
+                        parsed.result &&
+                        typeof (parsed.result as Record<string, unknown>).conversation_id === "string"
+                      ) {
+                        ctx.conversationId = (parsed.result as Record<string, unknown>).conversation_id as string;
+                      }
+                    }
+
+                    if (parsed.step_update) {
+                      const stepUpdate = parsed.step_update as Record<string, unknown>;
+                      if (typeof stepUpdate.text_delta === "string" && stepUpdate.text_delta) {
+                        responseText = stepUpdate.text_delta;
+                        streamedAnyDelta = true;
+                      }
+                    } else if (parsed.result && !streamedAnyDelta) {
+                      const resultObj = parsed.result as Record<string, unknown>;
+                      if (typeof resultObj.response === "string" && resultObj.response) {
+                        responseText = resultObj.response;
+                      }
+                    }
+                  } catch (_e) {
+                    responseText = line + "\n";
                   }
+                } else {
+                  responseText = line + "\n";
                 }
 
-                ctx.session = {
-                  ...ctx.session,
-                  status: "ready",
-                  activeTurnId: undefined,
-                  updatedAt: yield* nowIso,
-                };
+                if (responseText) {
+                  yield* offerRuntimeEvent({
+                    type: "content.delta",
+                    ...(yield* makeEventStamp()),
+                    provider: PROVIDER,
+                    threadId: input.threadId,
+                    turnId,
+                    payload: {
+                      streamKind: "assistant_text",
+                      delta: responseText,
+                    },
+                  });
+                }
+              }
 
-                yield* offerRuntimeEvent({
-                  type: "turn.completed",
-                  ...(yield* makeEventStamp()),
-                  provider: PROVIDER,
-                  threadId: input.threadId,
-                  turnId,
-                  payload: {
-                    state: "completed",
-                    stopReason: null,
-                  },
-                });
-              }),
-            );
-          }),
+              ctx.session = {
+                ...ctx.session,
+                status: "ready",
+                activeTurnId: undefined,
+                updatedAt: yield* nowIso,
+              };
+
+              yield* offerRuntimeEvent({
+                type: "turn.completed",
+                ...(yield* makeEventStamp()),
+                provider: PROVIDER,
+                threadId: input.threadId,
+                turnId,
+                payload: {
+                  state: "completed",
+                  stopReason: null,
+                },
+              });
+            }).pipe(Effect.catch(() => Effect.void)),
+          ),
         );
 
         return {
