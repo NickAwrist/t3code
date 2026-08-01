@@ -883,13 +883,6 @@ const devRunnerCli = Command.make("dev-runner", {
     Flag.withDescription("Server port override (forwards to T3CODE_PORT)."),
     Flag.withFallbackConfig(optionalPortConfig("T3CODE_PORT")),
   ),
-  webPort: Flag.integer("web-port").pipe(
-    Flag.withSchema(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))),
-    Flag.withDescription("Web dev server port override (forwards to PORT)."),
-    Flag.withFallbackConfig(optionalPortConfig("PORT")),
-    Flag.optional,
-    Flag.map(Option.getOrUndefined),
-  ),
   devUrl: Flag.string("dev-url").pipe(
     Flag.withSchema(Schema.URLFromString),
     Flag.withDescription(
