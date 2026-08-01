@@ -1,6 +1,7 @@
 import {
   ApprovalRequestId,
   type AntigravitySettings,
+  type CanonicalItemType,
   EventId,
   type ProviderApprovalDecision,
   ProviderDriverKind,
@@ -275,9 +276,11 @@ export function makeAntigravityAdapter(
                       const stepIndex = typeof stepUpdate.step_index === "number" ? stepUpdate.step_index : 0;
                       const state = stepUpdate.state as string | undefined;
 
-                      if (stepType === "tool" || stepType === "subagent") {
-                        const toolName =
-                          (stepUpdate.tool_name as string) || (stepUpdate.subagent_name as string) || "tool";
+                      if (stepType === "tool") {
+                        const toolName = (stepUpdate.tool_name as string) || "tool";
+                        const toolInfo = stepUpdate.tool_info as Record<string, unknown> | undefined;
+                        const parameters = toolInfo?.parameters as Record<string, unknown> | undefined;
+                        const output = typeof toolInfo?.output === "string" ? toolInfo.output : undefined;
 
                         let toolItemId = activeToolItems.get(stepIndex);
                         if (!toolItemId) {
@@ -290,6 +293,19 @@ export function makeAntigravityAdapter(
                             ? ("command_execution" as const)
                             : ("dynamic_tool_call" as const);
 
+                        let detail: string | undefined;
+                        if (parameters) {
+                          if (typeof parameters.CommandLine === "string") {
+                            detail = parameters.CommandLine;
+                          } else if (typeof parameters.AbsolutePath === "string") {
+                            detail = parameters.AbsolutePath;
+                          } else if (typeof parameters.TargetFile === "string") {
+                            detail = parameters.TargetFile;
+                          } else if (typeof parameters.query === "string") {
+                            detail = parameters.query;
+                          }
+                        }
+
                         if (state === "ACTIVE") {
                           yield* offerRuntimeEvent({
                             type: "item.started",
@@ -301,6 +317,8 @@ export function makeAntigravityAdapter(
                               itemType: canonicalType,
                               status: "inProgress" as const,
                               title: toolName,
+                              ...(detail ? { detail } : {}),
+                              data: { toolName, parameters },
                             },
                           });
                         } else if (state === "DONE") {
@@ -314,6 +332,54 @@ export function makeAntigravityAdapter(
                               itemType: canonicalType,
                               status: "completed" as const,
                               title: toolName,
+                              ...(detail ? { detail } : {}),
+                              data: { toolName, parameters, output },
+                            },
+                          });
+                          activeToolItems.delete(stepIndex);
+                        }
+                      } else if (stepType === "subagent") {
+                        const subagentInfo = stepUpdate.subagent_info as Record<string, unknown> | undefined;
+                        const subagentsList = subagentInfo?.subagents as Array<Record<string, unknown>> | undefined;
+                        const primarySubagent = subagentsList?.[0];
+                        const role = (primarySubagent?.role as string) || "Subagent";
+                        const prompt = primarySubagent?.initial_prompt as string | undefined;
+                        const title = `Subagent: ${role}`;
+
+                        let toolItemId = activeToolItems.get(stepIndex);
+                        if (!toolItemId) {
+                          toolItemId = RuntimeItemId.make(yield* randomUUIDv4);
+                          activeToolItems.set(stepIndex, toolItemId);
+                        }
+
+                        if (state === "ACTIVE") {
+                          yield* offerRuntimeEvent({
+                            type: "item.started",
+                            ...(yield* makeEventStamp()),
+                            threadId: input.threadId,
+                            turnId,
+                            itemId: toolItemId,
+                            payload: {
+                              itemType: "dynamic_tool_call" as const,
+                              status: "inProgress" as const,
+                              title,
+                              ...(prompt ? { detail: prompt } : {}),
+                              data: { subagentInfo },
+                            },
+                          });
+                        } else if (state === "DONE") {
+                          yield* offerRuntimeEvent({
+                            type: "item.completed",
+                            ...(yield* makeEventStamp()),
+                            threadId: input.threadId,
+                            turnId,
+                            itemId: toolItemId,
+                            payload: {
+                              itemType: "dynamic_tool_call" as const,
+                              status: "completed" as const,
+                              title,
+                              ...(prompt ? { detail: prompt } : {}),
+                              data: { subagentInfo },
                             },
                           });
                           activeToolItems.delete(stepIndex);
