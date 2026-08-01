@@ -389,8 +389,10 @@ export function createDevRunnerEnv({
       delete output.T3CODE_HOST;
     }
 
-    if (!isDesktopMode && host !== undefined) {
-      const bindHost = !host || host === "true" ? "0.0.0.0" : host;
+    const ambientHost = baseEnv.HOST?.trim() || baseEnv.T3CODE_HOST?.trim();
+    const effectiveHost = host ?? ambientHost;
+    if (!isDesktopMode && effectiveHost !== undefined && effectiveHost.length > 0) {
+      const bindHost = effectiveHost === "true" ? "0.0.0.0" : effectiveHost;
       output.T3CODE_HOST = bindHost;
       output.HOST = bindHost;
     }
