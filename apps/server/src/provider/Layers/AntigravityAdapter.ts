@@ -94,12 +94,16 @@ export function makeAntigravityAdapter(
       );
 
     const offerRuntimeEvent = (event: ProviderRuntimeEvent) =>
-      PubSub.publish(runtimeEventPubSub, event).pipe(Effect.asVoid);
+      Effect.gen(function* () {
+        console.log(`[AntigravityAdapter] offerRuntimeEvent: ${event.type} for thread ${String(event.threadId)} (instance: ${event.providerInstanceId})`);
+        yield* PubSub.publish(runtimeEventPubSub, event);
+      }).pipe(Effect.asVoid);
 
     const startSession = (
       input: ProviderSessionStartInput,
     ): Effect.Effect<ProviderSession, ProviderAdapterError> =>
       Effect.gen(function* () {
+        console.log(`[AntigravityAdapter] startSession: threadId=${String(input.threadId)}`);
         const cwd = input.cwd ? path.resolve(input.cwd.trim()) : process.cwd();
         const now = yield* nowIso;
         const session: ProviderSession = {
@@ -137,8 +141,10 @@ export function makeAntigravityAdapter(
       input: ProviderSendTurnInput,
     ): Effect.Effect<ProviderTurnStartResult, ProviderAdapterError> =>
       Effect.gen(function* () {
+        console.log(`[AntigravityAdapter] sendTurn: threadId=${String(input.threadId)} input=${JSON.stringify(input.input)}`);
         const ctx = sessions.get(input.threadId);
         if (!ctx || ctx.stopped) {
+          console.error(`[AntigravityAdapter] sendTurn ERROR: session not found or stopped for threadId=${String(input.threadId)}`);
           return yield* new ProviderAdapterSessionNotFoundError({
             provider: PROVIDER,
             threadId: input.threadId,
@@ -177,6 +183,8 @@ export function makeAntigravityAdapter(
           args.push("--conversation", ctx.conversationId);
         }
 
+        console.log(`[AntigravityAdapter] Spawning process: ${binary} ${args.join(" ")}`);
+
         const command = ChildProcess.make(binary, args);
 
         yield* Effect.forkChild(
@@ -194,6 +202,8 @@ export function makeAntigravityAdapter(
                 ),
               );
 
+              console.log(`[AntigravityAdapter] agy spawned successfully (pid: ${child.pid})`);
+
               const stdoutLines = child.stdout.pipe(
                 Stream.decodeText(),
                 Stream.splitLines,
@@ -202,6 +212,7 @@ export function makeAntigravityAdapter(
               let streamedAnyDelta = false;
               yield* Stream.runForEach(stdoutLines, (line) =>
                 Effect.gen(function* () {
+                  console.log(`[AntigravityAdapter] raw line: ${line}`);
                   if (!line.trim()) return;
                   let responseText = "";
                   if (line.startsWith("{")) {
@@ -227,6 +238,9 @@ export function makeAntigravityAdapter(
                         ) {
                           ctx.conversationId = (parsed.result as Record<string, unknown>).conversation_id as string;
                         }
+                        if (ctx.conversationId) {
+                          console.log(`[AntigravityAdapter] Set conversationId=${ctx.conversationId}`);
+                        }
                       }
 
                       if (parsed.step_update) {
@@ -241,7 +255,8 @@ export function makeAntigravityAdapter(
                           responseText = resultObj.response;
                         }
                       }
-                    } catch (_e) {
+                    } catch (e) {
+                      console.warn(`[AntigravityAdapter] JSON parse warning:`, e);
                       responseText = line + "\n";
                     }
                   } else {
@@ -249,6 +264,7 @@ export function makeAntigravityAdapter(
                   }
 
                   if (responseText) {
+                    console.log(`[AntigravityAdapter] Emitting content.delta: ${JSON.stringify(responseText)}`);
                     yield* offerRuntimeEvent({
                       type: "content.delta",
                       ...(yield* makeEventStamp()),
@@ -263,6 +279,9 @@ export function makeAntigravityAdapter(
                 }),
               );
 
+              const exitCode = yield* child.exitCode;
+              console.log(`[AntigravityAdapter] agy process exited with code ${exitCode}`);
+
               ctx.session = {
                 ...ctx.session,
                 status: "ready",
@@ -270,6 +289,7 @@ export function makeAntigravityAdapter(
                 updatedAt: yield* nowIso,
               };
 
+              console.log(`[AntigravityAdapter] Emitting turn.completed`);
               yield* offerRuntimeEvent({
                 type: "turn.completed",
                 ...(yield* makeEventStamp()),
@@ -280,7 +300,13 @@ export function makeAntigravityAdapter(
                   stopReason: null,
                 },
               });
-            }).pipe(Effect.catch(() => Effect.void)),
+            }).pipe(
+              Effect.catch((err) =>
+                Effect.gen(function* () {
+                  console.error(`[AntigravityAdapter] Process error:`, err);
+                }),
+              ),
+            ),
           ),
         );
 
