@@ -301,6 +301,7 @@ interface CreateDevRunnerEnvInput {
   readonly logWebSocketEvents: boolean | undefined;
   readonly host: string | undefined;
   readonly port: number | undefined;
+  readonly webPort?: number | undefined;
   readonly devUrl: URL | undefined;
 }
 
@@ -315,11 +316,17 @@ export function createDevRunnerEnv({
   logWebSocketEvents,
   host,
   port,
+  webPort: explicitWebPort,
   devUrl,
 }: CreateDevRunnerEnvInput): Effect.Effect<NodeJS.ProcessEnv, never, Path.Path> {
   return Effect.gen(function* () {
     const serverPort = port ?? BASE_SERVER_PORT + serverOffset;
-    const webPort = BASE_WEB_PORT + webOffset;
+    const ambientWebPort = baseEnv.PORT ? Number(baseEnv.PORT.trim()) : undefined;
+    const webPort =
+      explicitWebPort ??
+      (ambientWebPort && Number.isInteger(ambientWebPort) && ambientWebPort > 0
+        ? ambientWebPort
+        : BASE_WEB_PORT + webOffset);
     // Precedence (--home-dir > worktree .t3 > ambient T3CODE_HOME) is resolved
     // by the caller; an unset t3Home here genuinely means "use the default".
     const configuredBaseDir = t3Home?.trim() || undefined;
@@ -382,8 +389,12 @@ export function createDevRunnerEnv({
       delete output.T3CODE_HOST;
     }
 
-    if (!isDesktopMode && host !== undefined) {
-      output.T3CODE_HOST = host;
+    const ambientHost = baseEnv.HOST?.trim() || baseEnv.T3CODE_HOST?.trim();
+    const effectiveHost = host ?? ambientHost;
+    if (!isDesktopMode && effectiveHost !== undefined && effectiveHost.length > 0) {
+      const bindHost = effectiveHost === "true" ? "0.0.0.0" : effectiveHost;
+      output.T3CODE_HOST = bindHost;
+      output.HOST = bindHost;
     }
 
     if (!isDesktopMode) {
@@ -616,6 +627,7 @@ interface DevRunnerCliInput {
   readonly logWebSocketEvents: boolean | undefined;
   readonly host: string | undefined;
   readonly port: number | undefined;
+  readonly webPort?: number | undefined;
   readonly devUrl: URL | undefined;
   readonly dryRun: boolean;
   readonly share: boolean;
@@ -688,6 +700,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
       logWebSocketEvents: input.logWebSocketEvents,
       host: input.host,
       port: input.port,
+      webPort: input.webPort,
       devUrl: input.devUrl,
     });
 
