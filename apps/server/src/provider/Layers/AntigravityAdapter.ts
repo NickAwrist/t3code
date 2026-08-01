@@ -20,6 +20,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
+import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
@@ -60,13 +61,14 @@ export function makeAntigravityAdapter(
 ): Effect.Effect<
   ProviderAdapterShape<ProviderAdapterError>,
   never,
-  ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto | Path.Path
+  ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto | Path.Path | Scope.Scope
 > {
   return Effect.gen(function* () {
     const boundInstanceId = options?.instanceId ?? ProviderInstanceId.make("antigravity");
     const path = yield* Path.Path;
     const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const crypto = yield* Crypto.Crypto;
+    const adapterScope = yield* Effect.scope;
 
     const sessions = new Map<ThreadId, AntigravitySessionContext>();
     const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
@@ -191,125 +193,123 @@ export function makeAntigravityAdapter(
           shell: true,
         });
 
-        yield* Effect.forkChild(
-          Effect.scoped(
-            Effect.gen(function* () {
-              const child = yield* childProcessSpawner.spawn(command).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderAdapterProcessError({
-                      provider: PROVIDER,
-                      threadId: input.threadId,
-                      detail: `Failed to spawn agy: ${cause}`,
-                      cause,
-                    }),
-                ),
-              );
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const child = yield* childProcessSpawner.spawn(command).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderAdapterProcessError({
+                    provider: PROVIDER,
+                    threadId: input.threadId,
+                    detail: `Failed to spawn agy: ${cause}`,
+                    cause,
+                  }),
+              ),
+            );
 
-              yield* Effect.logInfo(`[AntigravityAdapter] agy spawned successfully (pid: ${child.pid})`);
+            yield* Effect.logInfo(`[AntigravityAdapter] agy spawned successfully (pid: ${child.pid})`);
 
-              const stdoutLines = child.stdout.pipe(
-                Stream.decodeText(),
-                Stream.splitLines,
-              );
+            const stdoutLines = child.stdout.pipe(
+              Stream.decodeText(),
+              Stream.splitLines,
+            );
 
-              let streamedAnyDelta = false;
-              yield* Stream.runForEach(stdoutLines, (line) =>
-                Effect.gen(function* () {
-                  yield* Effect.logInfo(`[AntigravityAdapter] raw line: ${line}`);
-                  if (!line.trim()) return;
-                  let responseText = "";
-                  if (line.startsWith("{")) {
-                    try {
-                      const parsed = decodeUnknownJsonString(line) as Record<string, unknown>;
+            let streamedAnyDelta = false;
+            yield* Stream.runForEach(stdoutLines, (line) =>
+              Effect.gen(function* () {
+                yield* Effect.logInfo(`[AntigravityAdapter] raw line: ${line}`);
+                if (!line.trim()) return;
+                let responseText = "";
+                if (line.startsWith("{")) {
+                  try {
+                    const parsed = decodeUnknownJsonString(line) as Record<string, unknown>;
 
-                      if (!ctx.conversationId) {
-                        if (typeof parsed.conversation_id === "string") {
-                          ctx.conversationId = parsed.conversation_id;
-                        } else if (
-                          parsed.init &&
-                          typeof (parsed.init as Record<string, unknown>).conversation_id === "string"
-                        ) {
-                          ctx.conversationId = (parsed.init as Record<string, unknown>).conversation_id as string;
-                        } else if (
-                          parsed.step_update &&
-                          typeof (parsed.step_update as Record<string, unknown>).conversation_id === "string"
-                        ) {
-                          ctx.conversationId = (parsed.step_update as Record<string, unknown>).conversation_id as string;
-                        } else if (
-                          parsed.result &&
-                          typeof (parsed.result as Record<string, unknown>).conversation_id === "string"
-                        ) {
-                          ctx.conversationId = (parsed.result as Record<string, unknown>).conversation_id as string;
-                        }
-                        if (ctx.conversationId) {
-                          yield* Effect.logInfo(`[AntigravityAdapter] Set conversationId=${ctx.conversationId}`);
-                        }
+                    if (!ctx.conversationId) {
+                      if (typeof parsed.conversation_id === "string") {
+                        ctx.conversationId = parsed.conversation_id;
+                      } else if (
+                        parsed.init &&
+                        typeof (parsed.init as Record<string, unknown>).conversation_id === "string"
+                      ) {
+                        ctx.conversationId = (parsed.init as Record<string, unknown>).conversation_id as string;
+                      } else if (
+                        parsed.step_update &&
+                        typeof (parsed.step_update as Record<string, unknown>).conversation_id === "string"
+                      ) {
+                        ctx.conversationId = (parsed.step_update as Record<string, unknown>).conversation_id as string;
+                      } else if (
+                        parsed.result &&
+                        typeof (parsed.result as Record<string, unknown>).conversation_id === "string"
+                      ) {
+                        ctx.conversationId = (parsed.result as Record<string, unknown>).conversation_id as string;
                       }
-
-                      if (parsed.step_update) {
-                        const stepUpdate = parsed.step_update as Record<string, unknown>;
-                        if (typeof stepUpdate.text_delta === "string" && stepUpdate.text_delta) {
-                          responseText = stepUpdate.text_delta;
-                          streamedAnyDelta = true;
-                        }
-                      } else if (parsed.result && !streamedAnyDelta) {
-                        const resultObj = parsed.result as Record<string, unknown>;
-                        if (typeof resultObj.response === "string" && resultObj.response) {
-                          responseText = resultObj.response;
-                        }
+                      if (ctx.conversationId) {
+                        yield* Effect.logInfo(`[AntigravityAdapter] Set conversationId=${ctx.conversationId}`);
                       }
-                    } catch (_e) {
-                      responseText = line + "\n";
                     }
-                  } else {
+
+                    if (parsed.step_update) {
+                      const stepUpdate = parsed.step_update as Record<string, unknown>;
+                      if (typeof stepUpdate.text_delta === "string" && stepUpdate.text_delta) {
+                        responseText = stepUpdate.text_delta;
+                        streamedAnyDelta = true;
+                      }
+                    } else if (parsed.result && !streamedAnyDelta) {
+                      const resultObj = parsed.result as Record<string, unknown>;
+                      if (typeof resultObj.response === "string" && resultObj.response) {
+                        responseText = resultObj.response;
+                      }
+                    }
+                  } catch (_e) {
                     responseText = line + "\n";
                   }
+                } else {
+                  responseText = line + "\n";
+                }
 
-                  if (responseText) {
-                    yield* Effect.logInfo(`[AntigravityAdapter] Emitting content.delta: ${responseText}`);
-                    yield* offerRuntimeEvent({
-                      type: "content.delta",
-                      ...(yield* makeEventStamp()),
-                      threadId: input.threadId,
-                      turnId,
-                      payload: {
-                        streamKind: "assistant_text",
-                        delta: responseText,
-                      },
-                    });
-                  }
-                }),
-              );
+                if (responseText) {
+                  yield* Effect.logInfo(`[AntigravityAdapter] Emitting content.delta: ${responseText}`);
+                  yield* offerRuntimeEvent({
+                    type: "content.delta",
+                    ...(yield* makeEventStamp()),
+                    threadId: input.threadId,
+                    turnId,
+                    payload: {
+                      streamKind: "assistant_text",
+                      delta: responseText,
+                    },
+                  });
+                }
+              }),
+            );
 
-              const exitCode = yield* child.exitCode;
-              yield* Effect.logInfo(`[AntigravityAdapter] agy process exited with code ${exitCode}`);
+            const exitCode = yield* child.exitCode;
+            yield* Effect.logInfo(`[AntigravityAdapter] agy process exited with code ${exitCode}`);
 
-              ctx.session = {
-                ...ctx.session,
-                status: "ready",
-                activeTurnId: undefined,
-                updatedAt: yield* nowIso,
-              };
+            ctx.session = {
+              ...ctx.session,
+              status: "ready",
+              activeTurnId: undefined,
+              updatedAt: yield* nowIso,
+            };
 
-              yield* Effect.logInfo(`[AntigravityAdapter] Emitting turn.completed`);
-              yield* offerRuntimeEvent({
-                type: "turn.completed",
-                ...(yield* makeEventStamp()),
-                threadId: input.threadId,
-                turnId,
-                payload: {
-                  state: "completed",
-                  stopReason: null,
-                },
-              });
-            }).pipe(
-              Effect.catchCause((cause) =>
-                Effect.logError(`[AntigravityAdapter] Process error cause:`, cause),
-              ),
+            yield* Effect.logInfo(`[AntigravityAdapter] Emitting turn.completed`);
+            yield* offerRuntimeEvent({
+              type: "turn.completed",
+              ...(yield* makeEventStamp()),
+              threadId: input.threadId,
+              turnId,
+              payload: {
+                state: "completed",
+                stopReason: null,
+              },
+            });
+          }).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logError(`[AntigravityAdapter] Process error cause:`, cause),
             ),
           ),
-        );
+        ).pipe(Effect.forkIn(adapterScope));
 
         return {
           threadId: input.threadId,
