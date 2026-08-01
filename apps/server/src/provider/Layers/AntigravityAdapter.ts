@@ -192,6 +192,28 @@ export function makeAntigravityAdapter(
           ...(options?.environment ? { env: options.environment, extendEnv: true } : {}),
         });
 
+        const activeMessageItemId = RuntimeItemId.make(yield* randomUUIDv4);
+        let hasEmittedMessageItemStarted = false;
+        const activeToolItems = new Map<number, RuntimeItemId>();
+
+        const ensureMessageItemStarted = () =>
+          Effect.gen(function* () {
+            if (!hasEmittedMessageItemStarted) {
+              hasEmittedMessageItemStarted = true;
+              yield* offerRuntimeEvent({
+                type: "item.started",
+                ...(yield* makeEventStamp()),
+                threadId: input.threadId,
+                turnId,
+                itemId: activeMessageItemId,
+                payload: {
+                  itemType: "assistant_message" as const,
+                  status: "inProgress" as const,
+                },
+              });
+            }
+          });
+
         yield* Effect.scoped(
           Effect.gen(function* () {
             const child = yield* childProcessSpawner.spawn(command).pipe(
@@ -249,6 +271,55 @@ export function makeAntigravityAdapter(
 
                     if (parsed.step_update) {
                       const stepUpdate = parsed.step_update as Record<string, unknown>;
+                      const stepType = stepUpdate.step_type as string | undefined;
+                      const stepIndex = typeof stepUpdate.step_index === "number" ? stepUpdate.step_index : 0;
+                      const state = stepUpdate.state as string | undefined;
+
+                      if (stepType === "tool" || stepType === "subagent") {
+                        const toolName =
+                          (stepUpdate.tool_name as string) || (stepUpdate.subagent_name as string) || "tool";
+
+                        let toolItemId = activeToolItems.get(stepIndex);
+                        if (!toolItemId) {
+                          toolItemId = RuntimeItemId.make(yield* randomUUIDv4);
+                          activeToolItems.set(stepIndex, toolItemId);
+                        }
+
+                        const canonicalType =
+                          toolName === "run_command"
+                            ? ("command_execution" as const)
+                            : ("dynamic_tool_call" as const);
+
+                        if (state === "ACTIVE") {
+                          yield* offerRuntimeEvent({
+                            type: "item.started",
+                            ...(yield* makeEventStamp()),
+                            threadId: input.threadId,
+                            turnId,
+                            itemId: toolItemId,
+                            payload: {
+                              itemType: canonicalType,
+                              status: "inProgress" as const,
+                              title: toolName,
+                            },
+                          });
+                        } else if (state === "DONE") {
+                          yield* offerRuntimeEvent({
+                            type: "item.completed",
+                            ...(yield* makeEventStamp()),
+                            threadId: input.threadId,
+                            turnId,
+                            itemId: toolItemId,
+                            payload: {
+                              itemType: canonicalType,
+                              status: "completed" as const,
+                              title: toolName,
+                            },
+                          });
+                          activeToolItems.delete(stepIndex);
+                        }
+                      }
+
                       if (typeof stepUpdate.text_delta === "string" && stepUpdate.text_delta) {
                         responseText = stepUpdate.text_delta;
                         streamedAnyDelta = true;
@@ -267,12 +338,13 @@ export function makeAntigravityAdapter(
                 }
 
                 if (responseText) {
-                  yield* Effect.logInfo(`[AntigravityAdapter] Emitting content.delta: ${responseText}`);
+                  yield* ensureMessageItemStarted();
                   yield* offerRuntimeEvent({
                     type: "content.delta",
                     ...(yield* makeEventStamp()),
                     threadId: input.threadId,
                     turnId,
+                    itemId: activeMessageItemId,
                     payload: {
                       streamKind: "assistant_text",
                       delta: responseText,
@@ -284,6 +356,20 @@ export function makeAntigravityAdapter(
 
             const exitCode = yield* child.exitCode;
             yield* Effect.logInfo(`[AntigravityAdapter] agy process exited with code ${exitCode}`);
+
+            if (hasEmittedMessageItemStarted) {
+              yield* offerRuntimeEvent({
+                type: "item.completed",
+                ...(yield* makeEventStamp()),
+                threadId: input.threadId,
+                turnId,
+                itemId: activeMessageItemId,
+                payload: {
+                  itemType: "assistant_message" as const,
+                  status: "completed" as const,
+                },
+              });
+            }
 
             ctx.session = {
               ...ctx.session,
