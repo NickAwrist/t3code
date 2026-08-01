@@ -122,7 +122,13 @@ const configuredAllowedHosts = (process.env.T3CODE_DEV_ALLOWED_HOSTS ?? "")
   .split(",")
   .map((entry) => entry.trim())
   .filter((entry) => entry.length > 0);
-const allowedHosts = [".ts.net", ...configuredAllowedHosts];
+const allowedHosts: boolean | string[] =
+  explicitHost ||
+  process.env.T3CODE_HOST ||
+  configuredAllowedHosts.includes("true") ||
+  configuredAllowedHosts.includes("*")
+    ? true
+    : [".ts.net", ...configuredAllowedHosts];
 
 export default defineConfig(() => {
   return {
