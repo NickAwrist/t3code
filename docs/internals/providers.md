@@ -7,15 +7,16 @@ orchestration layer does not know which one is behind a thread.
 
 ## Built-in drivers
 
-[`builtInDrivers.ts`][drivers] exports `BUILT_IN_DRIVERS` with five entries:
+[`builtInDrivers.ts`][drivers] exports `BUILT_IN_DRIVERS` with six entries:
 
-| Driver kind   | Driver source                           |
-| ------------- | --------------------------------------- |
-| `codex`       | [`Drivers/CodexDriver.ts`][codex]       |
-| `claudeAgent` | [`Drivers/ClaudeDriver.ts`][claude]     |
-| `cursor`      | [`Drivers/CursorDriver.ts`][cursor]     |
-| `grok`        | [`Drivers/GrokDriver.ts`][grok]         |
-| `opencode`    | [`Drivers/OpenCodeDriver.ts`][opencode] |
+| Driver kind   | Driver source                                 |
+| ------------- | --------------------------------------------- |
+| `codex`       | [`Drivers/CodexDriver.ts`][codex]             |
+| `claudeAgent` | [`Drivers/ClaudeDriver.ts`][claude]           |
+| `cursor`      | [`Drivers/CursorDriver.ts`][cursor]           |
+| `grok`        | [`Drivers/GrokDriver.ts`][grok]               |
+| `opencode`    | [`Drivers/OpenCodeDriver.ts`][opencode]       |
+| `antigravity` | [`Drivers/AntigravityDriver.ts`][antigravity] |
 
 Each driver declares its `driverKind`, a `configSchema`, and a `create` function that builds an
 adapter in a child scope. Adapter implementations live beside them in
@@ -38,6 +39,22 @@ directory to route session and turn operations for a thread, so callers name a t
 
 Adding a driver means writing the driver plus adapter and adding it to `BUILT_IN_DRIVERS`. No
 orchestration, contract, or client change is required for the common case.
+
+## Turn-scoped drivers
+
+Most drivers hold a session open for the life of a thread. `antigravity` does not: the Antigravity
+CLI (`agy`) is print-mode only, so one process runs one prompt and exits. That shapes the adapter:
+
+- A session is an in-memory record. `sendTurn` spawns `agy -p … --output-format stream-json`,
+  translates the child's NDJSON into runtime events as it arrives, and returns once the process
+  exits. Translation is isolated in [`antigravityStreamJson.ts`][agy-stream] so it can be tested
+  against recorded transcripts without spawning anything.
+- Continuity comes from the `conversation_id` agy reports. It is stored as the session resume
+  cursor and replayed as `--conversation` on later turns, so a thread survives a server restart.
+- `--print-timeout` is pinned well past agy's five-minute default; T3 governs turn lifetime itself.
+- Permissions are always bypassed. Print mode has no channel to surface an approval on, so the
+  adapter opens no approval requests and `respondToRequest` fails rather than reporting a decision
+  nothing will consume. Interrupting a turn kills the child process.
 
 ## How provider work is requested
 
@@ -81,6 +98,8 @@ when a request opens (approval) or user input is requested, via
 [cursor]: ../../apps/server/src/provider/Drivers/CursorDriver.ts
 [grok]: ../../apps/server/src/provider/Drivers/GrokDriver.ts
 [opencode]: ../../apps/server/src/provider/Drivers/OpenCodeDriver.ts
+[antigravity]: ../../apps/server/src/provider/Drivers/AntigravityDriver.ts
+[agy-stream]: ../../apps/server/src/provider/Layers/antigravityStreamJson.ts
 [adapter]: ../../apps/server/src/provider/Services/ProviderAdapter.ts
 [instances]: ../../apps/server/src/provider/Services/ProviderInstanceRegistry.ts
 [registry]: ../../apps/server/src/provider/Services/ProviderAdapterRegistry.ts
