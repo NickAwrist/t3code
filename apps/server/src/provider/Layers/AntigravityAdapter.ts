@@ -95,7 +95,7 @@ export function makeAntigravityAdapter(
 
     const offerRuntimeEvent = (event: ProviderRuntimeEvent) =>
       Effect.gen(function* () {
-        console.log(`[AntigravityAdapter] offerRuntimeEvent: ${event.type} for thread ${String(event.threadId)} (instance: ${event.providerInstanceId})`);
+        yield* Effect.logInfo(`[AntigravityAdapter] offerRuntimeEvent: ${event.type} for thread ${String(event.threadId)} (instance: ${event.providerInstanceId})`);
         yield* PubSub.publish(runtimeEventPubSub, event);
       }).pipe(Effect.asVoid);
 
@@ -103,7 +103,7 @@ export function makeAntigravityAdapter(
       input: ProviderSessionStartInput,
     ): Effect.Effect<ProviderSession, ProviderAdapterError> =>
       Effect.gen(function* () {
-        console.log(`[AntigravityAdapter] startSession: threadId=${String(input.threadId)}`);
+        yield* Effect.logInfo(`[AntigravityAdapter] startSession: threadId=${String(input.threadId)}`);
         const cwd = input.cwd ? path.resolve(input.cwd.trim()) : process.cwd();
         const now = yield* nowIso;
         const session: ProviderSession = {
@@ -141,10 +141,10 @@ export function makeAntigravityAdapter(
       input: ProviderSendTurnInput,
     ): Effect.Effect<ProviderTurnStartResult, ProviderAdapterError> =>
       Effect.gen(function* () {
-        console.log(`[AntigravityAdapter] sendTurn: threadId=${String(input.threadId)} input=${JSON.stringify(input.input)}`);
+        yield* Effect.logInfo(`[AntigravityAdapter] sendTurn: threadId=${String(input.threadId)} input=${String(input.input)}`);
         const ctx = sessions.get(input.threadId);
         if (!ctx || ctx.stopped) {
-          console.error(`[AntigravityAdapter] sendTurn ERROR: session not found or stopped for threadId=${String(input.threadId)}`);
+          yield* Effect.logError(`[AntigravityAdapter] sendTurn ERROR: session not found or stopped for threadId=${String(input.threadId)}`);
           return yield* new ProviderAdapterSessionNotFoundError({
             provider: PROVIDER,
             threadId: input.threadId,
@@ -183,9 +183,13 @@ export function makeAntigravityAdapter(
           args.push("--conversation", ctx.conversationId);
         }
 
-        console.log(`[AntigravityAdapter] Spawning process: ${binary} ${args.join(" ")}`);
+        yield* Effect.logInfo(`[AntigravityAdapter] Spawning process: ${binary} ${args.join(" ")}`);
 
-        const command = ChildProcess.make(binary, args);
+        const command = ChildProcess.make(binary, args, {
+          cwd: ctx.session.cwd,
+          ...(options?.environment ? { env: options.environment, extendEnv: true } : {}),
+          shell: true,
+        });
 
         yield* Effect.forkChild(
           Effect.scoped(
@@ -202,7 +206,7 @@ export function makeAntigravityAdapter(
                 ),
               );
 
-              console.log(`[AntigravityAdapter] agy spawned successfully (pid: ${child.pid})`);
+              yield* Effect.logInfo(`[AntigravityAdapter] agy spawned successfully (pid: ${child.pid})`);
 
               const stdoutLines = child.stdout.pipe(
                 Stream.decodeText(),
@@ -212,7 +216,7 @@ export function makeAntigravityAdapter(
               let streamedAnyDelta = false;
               yield* Stream.runForEach(stdoutLines, (line) =>
                 Effect.gen(function* () {
-                  console.log(`[AntigravityAdapter] raw line: ${line}`);
+                  yield* Effect.logInfo(`[AntigravityAdapter] raw line: ${line}`);
                   if (!line.trim()) return;
                   let responseText = "";
                   if (line.startsWith("{")) {
@@ -239,7 +243,7 @@ export function makeAntigravityAdapter(
                           ctx.conversationId = (parsed.result as Record<string, unknown>).conversation_id as string;
                         }
                         if (ctx.conversationId) {
-                          console.log(`[AntigravityAdapter] Set conversationId=${ctx.conversationId}`);
+                          yield* Effect.logInfo(`[AntigravityAdapter] Set conversationId=${ctx.conversationId}`);
                         }
                       }
 
@@ -255,8 +259,7 @@ export function makeAntigravityAdapter(
                           responseText = resultObj.response;
                         }
                       }
-                    } catch (e) {
-                      console.warn(`[AntigravityAdapter] JSON parse warning:`, e);
+                    } catch (_e) {
                       responseText = line + "\n";
                     }
                   } else {
@@ -264,7 +267,7 @@ export function makeAntigravityAdapter(
                   }
 
                   if (responseText) {
-                    console.log(`[AntigravityAdapter] Emitting content.delta: ${JSON.stringify(responseText)}`);
+                    yield* Effect.logInfo(`[AntigravityAdapter] Emitting content.delta: ${responseText}`);
                     yield* offerRuntimeEvent({
                       type: "content.delta",
                       ...(yield* makeEventStamp()),
@@ -280,7 +283,7 @@ export function makeAntigravityAdapter(
               );
 
               const exitCode = yield* child.exitCode;
-              console.log(`[AntigravityAdapter] agy process exited with code ${exitCode}`);
+              yield* Effect.logInfo(`[AntigravityAdapter] agy process exited with code ${exitCode}`);
 
               ctx.session = {
                 ...ctx.session,
@@ -289,7 +292,7 @@ export function makeAntigravityAdapter(
                 updatedAt: yield* nowIso,
               };
 
-              console.log(`[AntigravityAdapter] Emitting turn.completed`);
+              yield* Effect.logInfo(`[AntigravityAdapter] Emitting turn.completed`);
               yield* offerRuntimeEvent({
                 type: "turn.completed",
                 ...(yield* makeEventStamp()),
@@ -301,10 +304,8 @@ export function makeAntigravityAdapter(
                 },
               });
             }).pipe(
-              Effect.catch((err) =>
-                Effect.gen(function* () {
-                  console.error(`[AntigravityAdapter] Process error:`, err);
-                }),
+              Effect.catchCause((cause) =>
+                Effect.logError(`[AntigravityAdapter] Process error cause:`, cause),
               ),
             ),
           ),
