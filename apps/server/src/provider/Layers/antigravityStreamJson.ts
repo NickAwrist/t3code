@@ -42,6 +42,18 @@ const AntigravityToolInfo = Schema.Struct({
   output: Schema.optional(Schema.String),
 });
 
+const AntigravitySubagent = Schema.Struct({
+  type_name: Schema.optional(Schema.String),
+  role: Schema.optional(Schema.String),
+  initial_prompt: Schema.optional(Schema.String),
+  conversation_id: Schema.optional(Schema.String),
+  log_uri: Schema.optional(Schema.String),
+});
+
+const AntigravitySubagentInfo = Schema.Struct({
+  subagents: Schema.Array(AntigravitySubagent),
+});
+
 const AntigravityStepUpdate = Schema.Struct({
   conversation_id: Schema.optional(Schema.String),
   step_index: Schema.Number,
@@ -50,6 +62,7 @@ const AntigravityStepUpdate = Schema.Struct({
   text_delta: Schema.optional(Schema.String),
   tool_name: Schema.optional(Schema.String),
   tool_info: Schema.optional(AntigravityToolInfo),
+  subagent_info: Schema.optional(AntigravitySubagentInfo),
   usage: Schema.optional(AntigravityUsage),
 });
 export type AntigravityStepUpdate = typeof AntigravityStepUpdate.Type;
@@ -356,6 +369,51 @@ function mapToolStep(
   return drafts;
 }
 
+function mapSubagentStep(
+  state: AntigravityTurnState,
+  step: AntigravityStepUpdate,
+): Array<AntigravityRuntimeEventDraft> {
+  const drafts: Array<AntigravityRuntimeEventDraft> = [];
+  const itemId = stepItemId(state, step.step_index);
+  const itemType = "collab_agent_tool_call" as const;
+  const subagent = step.subagent_info?.subagents[0];
+  const role = subagent?.role?.trim();
+  const prompt = subagent?.initial_prompt?.trim();
+  const title = role ? `Subagent: ${role}` : "Subagent";
+
+  if (!state.openItems.has(step.step_index)) {
+    state.openItems.set(step.step_index, itemType);
+    drafts.push({
+      type: "item.started",
+      itemId,
+      payload: {
+        itemType,
+        status: "inProgress",
+        title,
+        ...(prompt ? { detail: prompt } : {}),
+        data: { subagentInfo: step.subagent_info },
+      },
+    });
+  }
+
+  if (step.state === "DONE") {
+    state.openItems.delete(step.step_index);
+    drafts.push({
+      type: "item.completed",
+      itemId,
+      payload: {
+        itemType,
+        status: "completed",
+        title,
+        ...(prompt ? { detail: prompt } : {}),
+        data: { subagentInfo: step.subagent_info },
+      },
+    });
+  }
+
+  return drafts;
+}
+
 /**
  * Translate one decoded stream event into runtime event drafts, advancing
  * `state`. Returns an empty array for events that carry no transcript-visible
@@ -370,12 +428,7 @@ export function mapAntigravityStreamEvent(
       const conversationId = normalizeConversationId(event.conversation_id);
       if (conversationId === undefined) return [];
       state.conversationId = conversationId;
-      return [
-        {
-          type: "thread.started",
-          payload: { providerThreadId: conversationId },
-        },
-      ];
+      return [];
     }
 
     case "step_update": {
@@ -391,6 +444,9 @@ export function mapAntigravityStreamEvent(
           break;
         case "tool":
           drafts.push(...mapToolStep(state, step));
+          break;
+        case "subagent":
+          drafts.push(...mapSubagentStep(state, step));
           break;
         default:
           // checkpoint / user_input / system_message / anything agy adds

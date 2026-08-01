@@ -1,21 +1,24 @@
-// @effect-diagnostics nodeBuiltinImport:off
-import * as NodeFSP from "node:fs/promises";
-import * as NodeOS from "node:os";
-import * as NodePath from "node:path";
-
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 
 import { discoverAntigravitySkills } from "./AntigravitySkills.ts";
 
-async function writeSkill(root: string, directoryName: string, contents: string): Promise<string> {
-  const skillDir = NodePath.join(root, directoryName);
-  await NodeFSP.mkdir(skillDir, { recursive: true });
-  const skillPath = NodePath.join(skillDir, "SKILL.md");
-  await NodeFSP.writeFile(skillPath, contents, "utf8");
+const writeSkill = Effect.fn("writeAntigravitySkill")(function* (
+  root: string,
+  directoryName: string,
+  contents: string,
+) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const skillDir = path.join(root, directoryName);
+  yield* fileSystem.makeDirectory(skillDir, { recursive: true });
+  const skillPath = path.join(skillDir, "SKILL.md");
+  yield* fileSystem.writeFileString(skillPath, contents);
   return skillPath;
-}
+});
 
 function frontmatter(name: string, description: string): string {
   return `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`;
@@ -24,15 +27,13 @@ function frontmatter(name: string, description: string): string {
 it.layer(NodeServices.layer)("discoverAntigravitySkills", (it) => {
   it.effect("finds workspace skills under .agents/skills", () =>
     Effect.gen(function* () {
-      const workspace = yield* Effect.promise(() =>
-        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "agy-skills-ws-")),
-      );
-      const skillPath = yield* Effect.promise(() =>
-        writeSkill(
-          NodePath.join(workspace, ".agents", "skills"),
-          "deploy-runbook",
-          frontmatter("deploy-runbook", "Steps to ship a release."),
-        ),
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspace = yield* fileSystem.makeTempDirectoryScoped({ prefix: "agy-skills-ws-" });
+      const skillPath = yield* writeSkill(
+        path.join(workspace, ".agents", "skills"),
+        "deploy-runbook",
+        frontmatter("deploy-runbook", "Steps to ship a release."),
       );
 
       const skills = yield* discoverAntigravitySkills(workspace);
@@ -48,14 +49,14 @@ it.layer(NodeServices.layer)("discoverAntigravitySkills", (it) => {
 
   it.effect("falls back to the directory name and skips malformed frontmatter", () =>
     Effect.gen(function* () {
-      const workspace = yield* Effect.promise(() =>
-        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "agy-skills-mixed-")),
-      );
-      const root = NodePath.join(workspace, ".agents", "skills");
-      yield* Effect.promise(() => writeSkill(root, "no-frontmatter", "# Just a heading\n"));
-      yield* Effect.promise(() =>
-        writeSkill(root, "broken", "---\nname: [unclosed\n---\n\n# Broken\n"),
-      );
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspace = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "agy-skills-mixed-",
+      });
+      const root = path.join(workspace, ".agents", "skills");
+      yield* writeSkill(root, "no-frontmatter", "# Just a heading\n");
+      yield* writeSkill(root, "broken", "---\nname: [unclosed\n---\n\n# Broken\n");
 
       const skills = yield* discoverAntigravitySkills(workspace);
 
@@ -70,9 +71,8 @@ it.layer(NodeServices.layer)("discoverAntigravitySkills", (it) => {
 
   it.effect("returns an empty list when the workspace has no skills", () =>
     Effect.gen(function* () {
-      const workspace = yield* Effect.promise(() =>
-        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "agy-skills-empty-")),
-      );
+      const fileSystem = yield* FileSystem.FileSystem;
+      const workspace = yield* fileSystem.makeTempDirectoryScoped({ prefix: "agy-skills-empty-" });
 
       const skills = yield* discoverAntigravitySkills(workspace);
 

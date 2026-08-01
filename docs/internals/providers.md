@@ -52,9 +52,9 @@ CLI (`agy`) is print-mode only, so one process runs one prompt and exits. That s
 - Continuity comes from the `conversation_id` agy reports. It is stored as the session resume
   cursor and replayed as `--conversation` on later turns, so a thread survives a server restart.
 - `--print-timeout` is pinned well past agy's five-minute default; T3 governs turn lifetime itself.
-- Permissions are always bypassed. Print mode has no channel to surface an approval on, so the
-  adapter opens no approval requests and `respondToRequest` fails rather than reporting a decision
-  nothing will consume. Interrupting a turn kills the child process.
+- Print mode has no channel to surface an approval, so the adapter accepts only full-access
+  sessions and rejects other runtime modes before spawning. Full access passes
+  `--dangerously-skip-permissions`; interrupting a turn kills the child process.
 
 ## How provider work is requested
 

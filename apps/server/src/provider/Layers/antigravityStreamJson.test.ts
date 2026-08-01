@@ -72,7 +72,7 @@ describe("decodeAntigravityLine", () => {
 });
 
 describe("mapAntigravityStreamEvent", () => {
-  it("reports the conversation id from init so the thread can be resumed", () => {
+  it("records the conversation id from init for adapter-owned announcement and resume", () => {
     const state = makeState();
     const drafts = feed(
       state,
@@ -80,9 +80,7 @@ describe("mapAntigravityStreamEvent", () => {
     );
 
     NodeAssert.equal(state.conversationId, "conv-42");
-    NodeAssert.equal(drafts.length, 1);
-    NodeAssert.equal(drafts[0]!.type, "thread.started");
-    NodeAssert.deepEqual(drafts[0]!.payload, { providerThreadId: "conv-42" });
+    NodeAssert.deepEqual(drafts, []);
   });
 
   it("streams assistant text as deltas bracketed by item lifecycle events", () => {
@@ -205,6 +203,47 @@ describe("mapAntigravityStreamEvent", () => {
       drafts.map((draft) => draft.type),
       ["item.started", "item.completed"],
     );
+  });
+
+  it("maps recorded AGY subagent updates to a collaboration item", () => {
+    const state = makeState();
+    const active = feed(
+      state,
+      '{"event":"step_update","step_update":{"conversation_id":"da382c49-3474-44df-ba7c-5ea5271fc236","step_index":3,"state":"ACTIVE","step_type":"subagent","subagent_info":{"subagents":[{"type_name":"self","role":"Calculator","initial_prompt":"What is 1+1? Reply only with the numerical result.","conversation_id":"e0d1d9af-1240-48b8-b7f8-951aac7b9a80","log_uri":"file:///recorded/antigravity/transcript.jsonl"}]}}}',
+    );
+    const done = feed(
+      state,
+      '{"event":"step_update","step_update":{"conversation_id":"da382c49-3474-44df-ba7c-5ea5271fc236","step_index":3,"state":"DONE","step_type":"subagent","duration_seconds":0.079689493,"subagent_info":{"subagents":[{"type_name":"self","role":"Calculator","initial_prompt":"What is 1+1? Reply only with the numerical result.","conversation_id":"e0d1d9af-1240-48b8-b7f8-951aac7b9a80","log_uri":"file:///recorded/antigravity/transcript.jsonl"}]}}}',
+    );
+
+    NodeAssert.deepEqual(
+      active.map((draft) => draft.type),
+      ["item.started"],
+    );
+    NodeAssert.deepEqual(
+      done.map((draft) => draft.type),
+      ["item.completed"],
+    );
+    NodeAssert.deepEqual(active[0]!.payload, {
+      itemType: "collab_agent_tool_call",
+      status: "inProgress",
+      title: "Subagent: Calculator",
+      detail: "What is 1+1? Reply only with the numerical result.",
+      data: {
+        subagentInfo: {
+          subagents: [
+            {
+              type_name: "self",
+              role: "Calculator",
+              initial_prompt: "What is 1+1? Reply only with the numerical result.",
+              conversation_id: "e0d1d9af-1240-48b8-b7f8-951aac7b9a80",
+              log_uri: "file:///recorded/antigravity/transcript.jsonl",
+            },
+          ],
+        },
+      },
+    });
+    NodeAssert.equal(active[0]!.itemId, done[0]!.itemId);
   });
 
   it("produces no transcript items for checkpoint and system steps", () => {
