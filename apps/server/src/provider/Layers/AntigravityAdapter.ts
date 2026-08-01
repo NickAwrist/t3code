@@ -84,7 +84,14 @@ export function makeAntigravityAdapter(
       ),
     );
     const nextEventId = Effect.map(randomUUIDv4, (id) => EventId.make(id));
-    const makeEventStamp = () => Effect.all({ eventId: nextEventId, createdAt: nowIso });
+    const makeEventStamp = () =>
+      Effect.all({ eventId: nextEventId, createdAt: nowIso }).pipe(
+        Effect.map((stamp) => ({
+          ...stamp,
+          provider: PROVIDER,
+          providerInstanceId: boundInstanceId,
+        })),
+      );
 
     const offerRuntimeEvent = (event: ProviderRuntimeEvent) =>
       PubSub.publish(runtimeEventPubSub, event).pipe(Effect.asVoid);
@@ -119,7 +126,6 @@ export function makeAntigravityAdapter(
         yield* offerRuntimeEvent({
           type: "session.started",
           ...(yield* makeEventStamp()),
-          provider: PROVIDER,
           threadId: input.threadId,
           payload: {},
         });
@@ -153,7 +159,6 @@ export function makeAntigravityAdapter(
         yield* offerRuntimeEvent({
           type: "turn.started",
           ...(yield* makeEventStamp()),
-          provider: PROVIDER,
           threadId: input.threadId,
           turnId,
           payload: {},
@@ -189,71 +194,74 @@ export function makeAntigravityAdapter(
                 ),
               );
 
-              const stdoutText = yield* collectStreamAsString(child.stdout);
-              const lines = stdoutText.split("\n").filter(Boolean);
+              const stdoutLines = child.stdout.pipe(
+                Stream.decodeText(),
+                Stream.splitLines,
+              );
 
               let streamedAnyDelta = false;
-              for (const line of lines) {
-                if (!line.trim()) continue;
-                let responseText = "";
-                if (line.startsWith("{")) {
-                  try {
-                    const parsed = decodeUnknownJsonString(line) as Record<string, unknown>;
+              yield* Stream.runForEach(stdoutLines, (line) =>
+                Effect.gen(function* () {
+                  if (!line.trim()) return;
+                  let responseText = "";
+                  if (line.startsWith("{")) {
+                    try {
+                      const parsed = decodeUnknownJsonString(line) as Record<string, unknown>;
 
-                    if (!ctx.conversationId) {
-                      if (typeof parsed.conversation_id === "string") {
-                        ctx.conversationId = parsed.conversation_id;
-                      } else if (
-                        parsed.init &&
-                        typeof (parsed.init as Record<string, unknown>).conversation_id === "string"
-                      ) {
-                        ctx.conversationId = (parsed.init as Record<string, unknown>).conversation_id as string;
-                      } else if (
-                        parsed.step_update &&
-                        typeof (parsed.step_update as Record<string, unknown>).conversation_id === "string"
-                      ) {
-                        ctx.conversationId = (parsed.step_update as Record<string, unknown>).conversation_id as string;
-                      } else if (
-                        parsed.result &&
-                        typeof (parsed.result as Record<string, unknown>).conversation_id === "string"
-                      ) {
-                        ctx.conversationId = (parsed.result as Record<string, unknown>).conversation_id as string;
+                      if (!ctx.conversationId) {
+                        if (typeof parsed.conversation_id === "string") {
+                          ctx.conversationId = parsed.conversation_id;
+                        } else if (
+                          parsed.init &&
+                          typeof (parsed.init as Record<string, unknown>).conversation_id === "string"
+                        ) {
+                          ctx.conversationId = (parsed.init as Record<string, unknown>).conversation_id as string;
+                        } else if (
+                          parsed.step_update &&
+                          typeof (parsed.step_update as Record<string, unknown>).conversation_id === "string"
+                        ) {
+                          ctx.conversationId = (parsed.step_update as Record<string, unknown>).conversation_id as string;
+                        } else if (
+                          parsed.result &&
+                          typeof (parsed.result as Record<string, unknown>).conversation_id === "string"
+                        ) {
+                          ctx.conversationId = (parsed.result as Record<string, unknown>).conversation_id as string;
+                        }
                       }
-                    }
 
-                    if (parsed.step_update) {
-                      const stepUpdate = parsed.step_update as Record<string, unknown>;
-                      if (typeof stepUpdate.text_delta === "string" && stepUpdate.text_delta) {
-                        responseText = stepUpdate.text_delta;
-                        streamedAnyDelta = true;
+                      if (parsed.step_update) {
+                        const stepUpdate = parsed.step_update as Record<string, unknown>;
+                        if (typeof stepUpdate.text_delta === "string" && stepUpdate.text_delta) {
+                          responseText = stepUpdate.text_delta;
+                          streamedAnyDelta = true;
+                        }
+                      } else if (parsed.result && !streamedAnyDelta) {
+                        const resultObj = parsed.result as Record<string, unknown>;
+                        if (typeof resultObj.response === "string" && resultObj.response) {
+                          responseText = resultObj.response;
+                        }
                       }
-                    } else if (parsed.result && !streamedAnyDelta) {
-                      const resultObj = parsed.result as Record<string, unknown>;
-                      if (typeof resultObj.response === "string" && resultObj.response) {
-                        responseText = resultObj.response;
-                      }
+                    } catch (_e) {
+                      responseText = line + "\n";
                     }
-                  } catch (_e) {
+                  } else {
                     responseText = line + "\n";
                   }
-                } else {
-                  responseText = line + "\n";
-                }
 
-                if (responseText) {
-                  yield* offerRuntimeEvent({
-                    type: "content.delta",
-                    ...(yield* makeEventStamp()),
-                    provider: PROVIDER,
-                    threadId: input.threadId,
-                    turnId,
-                    payload: {
-                      streamKind: "assistant_text",
-                      delta: responseText,
-                    },
-                  });
-                }
-              }
+                  if (responseText) {
+                    yield* offerRuntimeEvent({
+                      type: "content.delta",
+                      ...(yield* makeEventStamp()),
+                      threadId: input.threadId,
+                      turnId,
+                      payload: {
+                        streamKind: "assistant_text",
+                        delta: responseText,
+                      },
+                    });
+                  }
+                }),
+              );
 
               ctx.session = {
                 ...ctx.session,
@@ -265,7 +273,6 @@ export function makeAntigravityAdapter(
               yield* offerRuntimeEvent({
                 type: "turn.completed",
                 ...(yield* makeEventStamp()),
-                provider: PROVIDER,
                 threadId: input.threadId,
                 turnId,
                 payload: {
