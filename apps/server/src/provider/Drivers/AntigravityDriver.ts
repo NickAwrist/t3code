@@ -143,6 +143,9 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
         ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
       });
 
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+
       const checkProvider = checkAntigravityProviderStatus(
         effectiveConfig,
         serverConfig.cwd,
@@ -150,6 +153,8 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
       ).pipe(
         Effect.map(stampIdentity),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
       );
 
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);

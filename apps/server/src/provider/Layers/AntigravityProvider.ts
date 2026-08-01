@@ -5,10 +5,13 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
 import { createModelCapabilities } from "@t3tools/shared/model";
+import { discoverAntigravitySkills } from "../Drivers/AntigravitySkills.ts";
 import {
   buildServerProvider,
   parseGenericCliVersion,
@@ -63,6 +66,7 @@ export const makePendingAntigravityProvider = (
       enabled: settings.enabled,
       checkedAt,
       models,
+      skills: [],
       probe: {
         installed: false,
         version: null,
@@ -77,9 +81,13 @@ export const makePendingAntigravityProvider = (
 
 export const checkAntigravityProviderStatus = (
   settings: AntigravitySettings,
-  _cwd: string,
-  _environment?: NodeJS.ProcessEnv,
-): Effect.Effect<ServerProviderDraft, never, ChildProcessSpawner.ChildProcessSpawner> =>
+  cwd: string,
+  environment?: NodeJS.ProcessEnv,
+): Effect.Effect<
+  ServerProviderDraft,
+  never,
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+> =>
   Effect.gen(function* () {
     const checkedAt = DateTime.formatIso(yield* DateTime.now);
     const binary = settings.binaryPath || "agy";
@@ -89,12 +97,17 @@ export const checkAntigravityProviderStatus = (
       DEFAULT_ANTIGRAVITY_CAPABILITIES,
     );
 
+    const skills = yield* discoverAntigravitySkills(settings, cwd, environment).pipe(
+      Effect.orElseSucceed(() => []),
+    );
+
     if (!settings.enabled) {
       return buildServerProvider({
         presentation: ANTIGRAVITY_PRESENTATION,
         enabled: false,
         checkedAt,
         models,
+        skills,
         probe: {
           installed: false,
           version: null,
@@ -114,6 +127,7 @@ export const checkAntigravityProviderStatus = (
         enabled: true,
         checkedAt,
         models,
+        skills,
         probe: {
           installed: false,
           version: null,
@@ -131,6 +145,7 @@ export const checkAntigravityProviderStatus = (
       enabled: true,
       checkedAt,
       models,
+      skills,
       probe: {
         installed: true,
         version,
@@ -143,3 +158,4 @@ export const checkAntigravityProviderStatus = (
       },
     });
   });
+
