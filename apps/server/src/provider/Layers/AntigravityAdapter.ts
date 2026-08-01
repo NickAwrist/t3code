@@ -172,7 +172,7 @@ export function makeAntigravityAdapter(
           payload: {},
         });
 
-        const binary = settings.binaryPath || "agy";
+        const binary = settings.binaryPath?.trim() || "/home/nickawrist/.local/bin/agy";
         const args = [
           "-p",
           promptText,
@@ -190,7 +190,6 @@ export function makeAntigravityAdapter(
         const command = ChildProcess.make(binary, args, {
           cwd: ctx.session.cwd,
           ...(options?.environment ? { env: options.environment, extendEnv: true } : {}),
-          shell: true,
         });
 
         yield* Effect.scoped(
