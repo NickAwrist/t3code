@@ -390,7 +390,9 @@ export function createDevRunnerEnv({
     }
 
     if (!isDesktopMode && host !== undefined) {
-      output.T3CODE_HOST = host;
+      const bindHost = !host || host === "true" ? "0.0.0.0" : host;
+      output.T3CODE_HOST = bindHost;
+      output.HOST = bindHost;
     }
 
     if (!isDesktopMode) {
