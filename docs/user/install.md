@@ -58,6 +58,9 @@ to use, then authenticate it.
 Cursor is the one to watch: install Cursor CLI, which provides the `cursor-agent` binary that
 T3 Code looks for, but authenticate with `agent login`, not `cursor-agent login`.
 
+Antigravity currently runs in noninteractive print mode with full access. It cannot relay
+interactive approval requests to T3 Code.
+
 Run the login command on the machine running the T3 Code server, not on the device you browse
 from.
 

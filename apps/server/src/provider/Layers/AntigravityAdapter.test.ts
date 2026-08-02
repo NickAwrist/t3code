@@ -665,6 +665,45 @@ it.layer(NodeServices.layer)("AntigravityAdapter", (it) => {
     }),
   );
 
+  it.effect("allows turns for different threads to run independently", () =>
+    Effect.gen(function* () {
+      const firstThreadId = ThreadId.make("antigravity-independent-first");
+      const secondThreadId = ThreadId.make("antigravity-independent-second");
+      const first = yield* makeControlledProcess(TRANSCRIPT);
+      const second = yield* makeControlledProcess(TRANSCRIPT);
+      const controlled = yield* makeControlledSpawner([first, second]);
+      const adapter = yield* makeTestAdapter("/bin/sh").pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, controlled.spawner),
+      );
+
+      for (const threadId of [firstThreadId, secondThreadId]) {
+        yield* adapter.startSession({
+          threadId,
+          provider: PROVIDER,
+          cwd: process.cwd(),
+          runtimeMode: "full-access",
+        });
+      }
+
+      const firstFiber = yield* adapter
+        .sendTurn({ threadId: firstThreadId, input: "first" })
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(first.exitAwaited);
+      const secondFiber = yield* adapter
+        .sendTurn({ threadId: secondThreadId, input: "second" })
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(controlled.spawned[1]!);
+
+      assert.isTrue(Option.isNone(yield* Deferred.poll(first.exit)));
+      yield* Deferred.succeed(first.exit, ChildProcessSpawner.ExitCode(0));
+      yield* Deferred.succeed(second.exit, ChildProcessSpawner.ExitCode(0));
+      yield* Fiber.join(firstFiber);
+      yield* Fiber.join(secondFiber);
+      yield* adapter.stopSession(firstThreadId);
+      yield* adapter.stopSession(secondThreadId);
+    }),
+  );
+
   it.effect("interrupts a turn while process spawning is still being prepared", () =>
     Effect.gen(function* () {
       const threadId = ThreadId.make("antigravity-interrupt-preparation");
@@ -731,6 +770,55 @@ it.layer(NodeServices.layer)("AntigravityAdapter", (it) => {
           assert.equal(completed.length, 1);
           assert.equal(completed[0]?.payload.state, "interrupted");
           yield* adapter.stopSession(threadId);
+        }),
+      );
+    }),
+  );
+
+  it.effect("does not return a stopped session to ready when its process exits", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("antigravity-stop-exit-ordering");
+      const controlledProcess = yield* makeControlledProcess(TRANSCRIPT);
+      const controlled = yield* makeControlledSpawner([controlledProcess]);
+      const adapter = yield* makeTestAdapter("/bin/sh").pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, controlled.spawner),
+      );
+
+      yield* withRecordedEvents(adapter, (events) =>
+        Effect.gen(function* () {
+          yield* adapter.startSession({
+            threadId,
+            provider: PROVIDER,
+            cwd: process.cwd(),
+            runtimeMode: "full-access",
+          });
+          const turnFiber = yield* adapter
+            .sendTurn({ threadId, input: "wait" })
+            .pipe(Effect.forkChild);
+          yield* Deferred.await(controlledProcess.exitAwaited);
+
+          yield* adapter.stopSession(threadId);
+          yield* Fiber.join(turnFiber);
+          yield* Effect.yieldNow;
+
+          const exitedIndex = events.findIndex((event) => event.type === "session.exited");
+          const completedIndex = events.findIndex((event) => event.type === "turn.completed");
+          assert.isAtLeast(exitedIndex, 0);
+          assert.isAbove(completedIndex, exitedIndex);
+          assert.equal(events[completedIndex]?.type, "turn.completed");
+          if (events[completedIndex]?.type === "turn.completed") {
+            assert.equal(events[completedIndex].payload.state, "interrupted");
+          }
+          assert.isFalse(
+            events
+              .slice(exitedIndex + 1)
+              .some(
+                (event) =>
+                  event.type === "session.state.changed" && event.payload.state === "ready",
+              ),
+          );
+          assert.isFalse(yield* adapter.hasSession(threadId));
+          assert.deepEqual(yield* adapter.listSessions(), []);
         }),
       );
     }),
