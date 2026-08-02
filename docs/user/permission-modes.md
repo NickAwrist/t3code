@@ -44,5 +44,9 @@ with prompting enabled and a restricted workspace while **Full access** disables
 labels above describe what you get; the exact per-provider translation is internal and may
 change.
 
+Antigravity currently supports **Full access** only. Its noninteractive print mode cannot surface
+approval requests, so T3 Code rejects Supervised, Auto-accept edits, and Auto instead of silently
+changing their permission behavior.
+
 Mobile offers the same four modes. It labels the first one **Approve actions** rather than
 **Supervised**.
