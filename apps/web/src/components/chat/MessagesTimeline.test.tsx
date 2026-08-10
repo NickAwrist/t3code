@@ -325,6 +325,26 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Worked for 8.0s");
   });
 
+  it("exposes the minimap for sidebar-edge positioning", () => {
+    const timelineEntries = [
+      buildUserTimelineEntry("First message"),
+      {
+        ...buildUserTimelineEntry("Second message"),
+        id: "entry-2",
+        message: {
+          ...buildUserTimelineEntry("Second message").message,
+          id: MessageId.make("message-2"),
+        },
+      },
+    ];
+
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline {...buildProps()} timelineEntries={timelineEntries} />,
+    );
+
+    expect(markup).toContain('data-timeline-minimap=""');
+  });
+
   it("keeps assistant changed-files headers sticky below the thread header", () => {
     const assistantMessageId = MessageId.make("message-assistant-with-files");
     const turnId = TurnId.make("turn-with-files");
