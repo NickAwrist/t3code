@@ -130,6 +130,12 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   width: 0;
 }
 
+/* The timeline minimap belongs in the remaining gutter, immediately after an
+   app sidebar that overlays the chat's otherwise-unused left margin. */
+[data-sidebar-overlays-chat-margin="true"][data-sidebar-state="expanded"] [data-timeline-minimap] {
+  transform: translateX(var(--sidebar-width));
+}
+
 .wco {
   --workspace-topbar-height: env(titlebar-area-height, 52px);
   --workspace-controls-top: env(titlebar-area-y, 0px);
