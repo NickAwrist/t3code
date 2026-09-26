@@ -359,6 +359,26 @@ function buildSnapShotTimelineEntry(previewUrl?: string) {
 }
 
 describe("MessagesTimeline", () => {
+  it("renders previous and next controls with the minimap", () => {
+    const first = buildUserTimelineEntry("First turn");
+    const secondBase = buildUserTimelineEntry("Second turn");
+    const second = {
+      ...secondBase,
+      id: "entry-2",
+      message: {
+        ...secondBase.message,
+        id: MessageId.make("message-2"),
+      },
+    };
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline {...buildProps()} timelineEntries={[first, second]} />,
+    );
+
+    expect(markup).toContain('aria-label="Previous turn"');
+    expect(markup).toContain('aria-label="Next turn"');
+    expect(markup).toContain('data-timeline-minimap=""');
+  });
+
   it("shows dynamic tool input without cached output when the row is expanded", async () => {
     activityTestState.expanded = true;
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
