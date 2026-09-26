@@ -105,7 +105,7 @@ export function TimelineMinimap({
   return (
     <div
       className={cn(
-        "group/minimap pointer-events-none absolute inset-y-0 left-0 z-40 w-18 transition-[transform,opacity] duration-200 ease-linear motion-reduce:transition-none",
+        "group/minimap pointer-events-none absolute inset-y-0 left-0 z-40 w-18 transition-opacity duration-150 motion-reduce:transition-none [[data-panel-animations=true]_&]:transition-[transform,opacity] [[data-panel-animations=true]_&]:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:ease-out",
         hasPersistentGutter
           ? "opacity-100"
           : "hidden opacity-0 hover:opacity-100 focus-within:opacity-100 [@media(pointer:fine)]:block",
