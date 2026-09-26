@@ -33,7 +33,7 @@ import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { useEnvironmentIdentificationMode } from "../hooks/useSettings";
+import { useClientSettings, useEnvironmentIdentificationMode } from "../hooks/useSettings";
 import {
   PanelAnimationSuppressionProvider,
   usePanelAnimationSettings,
@@ -47,6 +47,7 @@ import { isAppModalPage } from "./sidebar/mainAppLocation";
 import type { SidebarRouteReveal } from "./sidebar/routeReveal";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import {
+  canThreadSidebarOverlayChatMargin,
   clampThreadSidebarWidth,
   resolveInitialThreadSidebarWidth,
   resolveThreadSidebarMaximumWidth,
@@ -438,10 +439,18 @@ export function AppSidebarLayout({
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   // A clamped drag may not change width, so viewport changes need a separate subscription.
+  const chatWidth = useClientSettings((settings) => settings.chatWidth);
   const viewportWidth = useSyncExternalStore(subscribeToViewportWidth, readViewportWidth);
   const [brandWidth, setBrandWidth] = useState(0);
   const sidebarMinimumWidth = resolveThreadSidebarMinimumWidth(brandWidth);
   const sidebarMaximumWidth = resolveThreadSidebarMaximumWidth(viewportWidth, sidebarMinimumWidth);
+  const clampedSidebarWidth = clampThreadSidebarWidth(
+    sidebarWidth,
+    sidebarMinimumWidth,
+    sidebarMaximumWidth,
+  );
+  const canOverlayChatMargin =
+    showSidebar && canThreadSidebarOverlayChatMargin(clampedSidebarWidth, viewportWidth, chatWidth);
   const resetSidebarWidth = () => {
     try {
       removeLocalStorageItem(THREAD_SIDEBAR_WIDTH_STORAGE_KEY);
@@ -460,7 +469,7 @@ export function AppSidebarLayout({
       : {}
   ) as CSSProperties;
   const sidebarProviderStyle = {
-    "--sidebar-width": `${clampThreadSidebarWidth(sidebarWidth, sidebarMinimumWidth, sidebarMaximumWidth)}px`,
+    "--sidebar-width": `${clampedSidebarWidth}px`,
     "--panel-animation-duration": `${panelAnimationDurationMs}ms`,
     ...windowControlsInsetStyle,
   } as CSSProperties;
@@ -470,6 +479,7 @@ export function AppSidebarLayout({
       <SidebarProvider
         className="h-dvh! min-h-0!"
         data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
+        data-sidebar-overlays-chat-margin={canOverlayChatMargin ? "true" : "false"}
         storageKey="chat_thread_sidebar_open"
         style={sidebarProviderStyle}
       >
@@ -483,6 +493,7 @@ export function AppSidebarLayout({
               {...sidebarArea}
               role="navigation"
               aria-label={gt("Threads")}
+              className="z-40"
               resizable={{
                 maxWidth: sidebarMaximumWidth,
                 minWidth: sidebarMinimumWidth,
