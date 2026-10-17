@@ -259,6 +259,25 @@ it("reveals selected turn files after the patch arrives, preserving siblings and
   expect(state.requestPatch).not.toHaveBeenCalled();
 });
 
+it("reveals the same turn file again after visiting a Git scope", async () => {
+  useDiffPanelStore.getState().selectTurn(threadRef, turns[0]!.runId, "b.ts");
+  await render();
+  expectExpanded(["b.ts"]);
+  expectScrolled("b.ts");
+
+  await act(async () => useDiffPanelStore.getState().selectGitScope(threadRef, "branch"));
+  expectExpanded([]);
+  await click("Expand a.ts");
+  state.scroll.mockClear();
+
+  await act(async () =>
+    useDiffPanelStore.getState().selectTurn(threadRef, turns[0]!.runId, "b.ts"),
+  );
+  expectExpanded(["b.ts"]);
+  expectScrolled("b.ts");
+  expect(state.scroll).toHaveBeenCalledTimes(1);
+});
+
 it("loads and reveals a lazy file without changing siblings or the next diff's collapsed default", async () => {
   await render();
   expectExpanded([]);

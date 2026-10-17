@@ -608,7 +608,10 @@ export default function DiffPanel({
 
   const externalRevealRef = useRef<{ scope: string | null; key: string } | null>(null);
   useEffect(() => {
-    if (!selectedFilePath) return;
+    if (!selectedFilePath) {
+      externalRevealRef.current = null;
+      return;
+    }
     const scope = collapseScopeKey ?? filePatchScope;
     const key = `${selectedFilePath}:${selectedFileRevealRequestId}`;
     if (externalRevealRef.current?.scope === scope && externalRevealRef.current.key === key) return;
