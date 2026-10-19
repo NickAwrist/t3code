@@ -544,23 +544,12 @@ export default function DiffPanel({
       externalRevealRef.current = null;
       return;
     }
-    const key = JSON.stringify([
-      collapseScopeKey,
-      filePatchScope,
-      selectedFilePath,
-      selectedFileRevealRequestId,
-    ]);
+    const key = JSON.stringify([collapseScopeKey, selectedFilePath, selectedFileRevealRequestId]);
     if (externalRevealRef.current === key) return;
     if (revealDiffFile(selectedFilePath)) {
       externalRevealRef.current = key;
     }
-  }, [
-    collapseScopeKey,
-    filePatchScope,
-    selectedFilePath,
-    selectedFileRevealRequestId,
-    revealDiffFile,
-  ]);
+  }, [collapseScopeKey, selectedFilePath, selectedFileRevealRequestId, revealDiffFile]);
 
   const openDiffFile = (filePath: string) => {
     openDiffFilePrimaryAction({
