@@ -17,7 +17,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
 
-vi.mock("../hooks/useThreadRouteTarget", () => ({ useThreadRouteRef: () => threadRef }));
+vi.mock("../hooks/useThreadRouteTarget", () => ({
+  useThreadRouteRef: () => threadRef,
+  useThreadRouteTarget: () => ({ ...threadRef, kind: "thread" }),
+}));
 vi.mock("../state/entities", () => ({
   useQuietThreadShell: () => thread,
   useThreadCheckpointSummaries: () => turns,
