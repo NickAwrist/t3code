@@ -134,7 +134,12 @@ async function render() {
   await act(async () =>
     root.render(
       <RegistryContext.Provider value={registry}>
-        <DiffPanel mode="embedded" composerDraftTarget={threadRef} workspaceMutationId={null} />
+        <DiffPanel
+          visible
+          mode="embedded"
+          composerDraftTarget={threadRef}
+          workspaceMutationId={null}
+        />
       </RegistryContext.Provider>,
     ),
   );
